@@ -1,30 +1,40 @@
 
-import { Toaster } from "@/components/ui/toaster";
-import { Toaster as Sonner } from "@/components/ui/sonner";
-import { TooltipProvider } from "@/components/ui/tooltip";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
-import { ThemeProvider } from "@/components/theme-provider";
-import Index from "./pages/Index";
-import NotFound from "./pages/NotFound";
+import { useState } from "react";
+import LoginPage from "@/components/LoginPage";
+import { erpLogin } from "@/lib/erpService";
+import type { Employee } from "@/types";
 
-const queryClient = new QueryClient();
+const App = () => {
+  const [employee, setEmployee] = useState<Employee>();
+  const [error, setError] = useState<string>();
+  const [isLoading, setIsLoading] = useState(false);
 
-const App = () => (
-  <ThemeProvider defaultTheme="system">
-    <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <Toaster />
-        <Sonner position="bottom-center" offset={24} mobileOffset={16} />
-        <BrowserRouter>
-          <Routes>
-            <Route path="/" element={<Index />} />
-            <Route path="*" element={<NotFound />} />
-          </Routes>
-        </BrowserRouter>
-      </TooltipProvider>
-    </QueryClientProvider>
-  </ThemeProvider>
-);
+  const handleLogin = async (email: string, password: string) => {
+    setIsLoading(true);
+    setError(undefined);
+
+    try {
+      const loggedInEmployee = await erpLogin(email, password);
+      setEmployee(loggedInEmployee);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to sign in");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <LoginPage
+      onLogin={handleLogin}
+      isLoading={isLoading}
+      error={error}
+      offlineMessage={
+        employee
+          ? `Signed in as ${employee.full_name}. App features have been removed.`
+          : undefined
+      }
+    />
+  );
+};
 
 export default App;

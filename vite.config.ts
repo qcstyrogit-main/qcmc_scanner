@@ -2,10 +2,9 @@ import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import path from "path";
 
-// https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
-  const erpTarget = env.VITE_ERP_TARGET ||"https://erp.qcstyro.com"; //"http://qc-styro.local:8000";// 
+  const erpTarget = env.VITE_ERP_TARGET || "https://erp.qcstyro.com";
 
   return {
     server: {
@@ -16,13 +15,11 @@ export default defineConfig(({ mode }) => {
           target: erpTarget,
           changeOrigin: true,
           secure: erpTarget.startsWith("https"),
-          rewrite: (path) => path.replace(/^\/erp/, ""),
+          rewrite: (requestPath) => requestPath.replace(/^\/erp/, ""),
         },
       },
     },
-    plugins: [
-      react()
-    ].filter(Boolean),
+    plugins: [react()],
     resolve: {
       alias: {
         "@": path.resolve(__dirname, "./src"),

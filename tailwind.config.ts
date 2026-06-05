@@ -1,6 +1,4 @@
 import type { Config } from "tailwindcss";
-import animate from "tailwindcss-animate";
-import typography from "@tailwindcss/typography";
 
 export default {
   darkMode: ["class"],
@@ -75,14 +73,6 @@ export default {
         sm: 'calc(var(--radius) - 2px)'
       },
       keyframes: {
-        'accordion-down': {
-          from: { height: '0' },
-          to: { height: 'var(--radix-accordion-content-height)' },
-        },
-        'accordion-up': {
-          from: { height: 'var(--radix-accordion-content-height)' },
-          to: { height: '0' },
-        },
         'fade-in': {
           from: { opacity: '0' },
           to: { opacity: '1' },
@@ -93,22 +83,10 @@ export default {
         },
       },
       animation: {
-        'accordion-down': 'accordion-down 0.2s ease-out',
-        'accordion-up': 'accordion-up 0.2s ease-out',
         'fade-in': 'fade-in 0.3s ease-out',
         'slide-in': 'slide-in 0.3s ease-out',
       },
-      typography: {
-        DEFAULT: {
-          css: {
-            maxWidth: 'none',
-          },
-        },
-      },
     }
   },
-  plugins: [
-    animate,
-    typography,
-  ],
+  plugins: [],
 } satisfies Config;
