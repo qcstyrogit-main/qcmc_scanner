@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">GeoTime QCMC</string>
-    <string name="title_activity_main">GeoTime QCMC</string>
-    <string name="package_name">com.qcstyro.timetrack</string>
-    <string name="custom_url_scheme">com.qcstyro.timetrack</string>
+    <string name="app_name">QCMC Scanner</string>
+    <string name="title_activity_main">QCMC Scanner</string>
+    <string name="package_name">com.qcstyro.scanner</string>
+    <string name="custom_url_scheme">com.qcstyro.scanner</string>
 </resources>

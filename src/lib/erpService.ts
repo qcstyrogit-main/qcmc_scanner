@@ -1,5 +1,20 @@
 import type { Employee } from "@/types";
-import { erpRequest, extractErrorMessage, setErpSid } from "@/lib/erpApi";
+import { erpRequest, extractErrorMessage, setErpSid, setErpCsrf } from "@/lib/erpApi";
+
+export type PcountEntry = {
+  itemCode: string;
+  quantity: number;
+  uom: string;
+  lotNo: string;
+  deviceId: string;
+  bin: {
+    stockroom: string;
+    building: string;
+    aisle: string;
+    rack: string;
+    bin: string;
+  };
+};
 
 const asRecord = (value: unknown): Record<string, unknown> => {
   if (!value || typeof value !== "object") return {};
@@ -46,6 +61,31 @@ const buildEmployeeFromErp = (
   };
 };
 
+export const submitPcountEntries = async (
+  reconciliationId: string,
+  entries: PcountEntry[]
+): Promise<{ itemCount: number }> => {
+  const res = await erpRequest(
+    "/api/method/qcmc_logic.api.stock_reconciliation.submit_pcount_entries",
+    {
+      method: "POST",
+      body: {
+        reconciliation_id: reconciliationId,
+        entries,
+      },
+    }
+  );
+
+  const data = (res.data && typeof res.data === "object" ? res.data : {}) as Record<string, unknown>;
+  const payload = (data.message && typeof data.message === "object" ? data.message : data) as Record<string, unknown>;
+
+  if (!res.ok || payload.success !== true) {
+    throw new Error(extractErrorMessage(payload, `Submit failed (HTTP ${res.status})`));
+  }
+
+  return { itemCount: Number(payload.item_count ?? 0) };
+};
+
 export const erpLogin = async (loginEmail: string, loginPassword: string): Promise<Employee> => {
   const loginRes = await erpRequest("/api/method/qcmc_logic.api.login_scan.login", {
     method: "POST",
@@ -64,6 +104,7 @@ export const erpLogin = async (loginEmail: string, loginPassword: string): Promi
   }
 
   setErpSid(readString(payload.sid) || readString(loginData.sid) || "");
+  setErpCsrf(readString(payload.csrf_token) || readString(loginData.csrf_token) || "");
 
   const employee = buildEmployeeFromErp(payload.user || loginData.user || loginEmail, loginEmail, {
     ...loginData,
