@@ -10,6 +10,12 @@ import {
 import { Device } from "@capacitor/device";
 import type { Employee } from "@/types";
 import { submitPcountEntries } from "@/lib/erpService";
+import {
+  loadLocalScanEntries,
+  saveLocalScanEntries,
+  type LocalBinLocation,
+  type LocalScanEntry,
+} from "@/lib/scanStorage";
 
 export type ScanMode = "in" | "out" | "pcount";
 type ScanStep = "reconciliation" | "bin" | "item" | "qty";
@@ -20,29 +26,8 @@ interface ScanPageProps {
   sessionKey: number;
 }
 
-type BinLocation = {
-  raw: string;
-  stockroom: string;
-  building: string;
-  aisle: string;
-  rack: string;
-  bin: string;
-};
-
-type ItemScan = {
-  raw: string;
-  mode: ScanMode;
-  reconciliationCode: string;
-  bin: BinLocation;
-  itemCode: string;
-  qrQuantity: number;
-  multiplier: number;
-  quantity: number;
-  uom: string;
-  lotNo: string;
-  timestamp: string;
-  deviceId: string;
-};
+type BinLocation = LocalBinLocation;
+type ItemScan = LocalScanEntry;
 
 type PendingItem = {
   raw: string;
@@ -116,7 +101,7 @@ const ScanPage: React.FC<ScanPageProps> = ({ employee, initialMode, sessionKey }
   const [reconciliationCode, setReconciliationCode] = React.useState("");
   const [currentBin, setCurrentBin] = React.useState<BinLocation | null>(null);
   const [pendingItem, setPendingItem] = React.useState<PendingItem | null>(null);
-  const [entries, setEntries] = React.useState<ItemScan[]>([]);
+  const [entries, setEntries] = React.useState<ItemScan[]>(() => loadLocalScanEntries(employee.id));
   const [message, setMessage] = React.useState("Select a mode, then scan the reconciliation QR first.");
   const [qtyDefaultActive, setQtyDefaultActive] = React.useState(false);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
@@ -130,6 +115,10 @@ const ScanPage: React.FC<ScanPageProps> = ({ employee, initialMode, sessionKey }
       .then((info) => setDeviceId(info.identifier))
       .catch(() => setDeviceId(""));
   }, []);
+
+  React.useEffect(() => {
+    saveLocalScanEntries(employee.id, entries);
+  }, [employee.id, entries]);
 
   const handleSubmitToErp = React.useCallback(async () => {
     if (!reconciliationCode || isSubmitting) return;

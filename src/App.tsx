@@ -55,8 +55,13 @@ const App = () => {
     }
   };
 
+  const handleLogout = () => {
+    setEmployee(undefined);
+    saveStoredEmployee(undefined);
+  };
+
   if (employee) {
-    return <BlankPage employee={employee} />;
+    return <BlankPage employee={employee} onLogout={handleLogout} />;
   }
 
   return (
