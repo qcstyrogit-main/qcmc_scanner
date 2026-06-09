@@ -1,8 +1,9 @@
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import LoginPage from "@/components/LoginPage";
 import BlankPage from "@/components/BlankPage";
 import { erpLogin } from "@/lib/erpService";
+import { resumeErpSession, setErpCsrf, setErpSid, setErpMobileToken } from "@/lib/erpApi";
 import type { Employee } from "@/types";
 
 const EMPLOYEE_STORAGE_KEY = "employee";
@@ -35,12 +36,51 @@ const saveStoredEmployee = (employee?: Employee) => {
   }
 };
 
+const initialEmployee = loadStoredEmployee();
+
 const App = () => {
-  const [employee, setEmployee] = useState<Employee | undefined>(() => loadStoredEmployee());
+  const [employee, setEmployee] = useState<Employee | undefined>(() => initialEmployee);
   const [error, setError] = useState<string>();
   const [isLoading, setIsLoading] = useState(false);
+  const [isRestoringSession, setIsRestoringSession] = useState<boolean>(() => Boolean(initialEmployee));
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!initialEmployee) {
+      setIsRestoringSession(false);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    setIsRestoringSession(true);
+    void (async () => {
+      const ok = await resumeErpSession();
+      if (cancelled) return;
+
+      if (!ok) {
+        setErpSid(undefined);
+        setErpCsrf(undefined);
+        setErpMobileToken(undefined);
+        setEmployee(undefined);
+        saveStoredEmployee(undefined);
+        setError("Session expired. Sign in again.");
+      }
+
+      setIsRestoringSession(false);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleLogin = async (email: string, password: string) => {
+    if (isRestoringSession) {
+      return;
+    }
+
     setIsLoading(true);
     setError(undefined);
 
@@ -56,11 +96,24 @@ const App = () => {
   };
 
   const handleLogout = () => {
+    setErpSid(undefined);
+    setErpCsrf(undefined);
+    setErpMobileToken(undefined);
     setEmployee(undefined);
     saveStoredEmployee(undefined);
   };
 
-  if (employee) {
+  if (isRestoringSession) {
+    return (
+      <LoginPage
+        onLogin={handleLogin}
+        isLoading
+        offlineMessage="Restoring saved session..."
+      />
+    );
+  }
+
+  if (employee && !isRestoringSession) {
     return <BlankPage employee={employee} onLogout={handleLogout} />;
   }
 

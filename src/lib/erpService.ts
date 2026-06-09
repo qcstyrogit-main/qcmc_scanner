@@ -1,5 +1,5 @@
 import type { Employee } from "@/types";
-import { erpRequest, extractErrorMessage, setErpSid, setErpCsrf } from "@/lib/erpApi";
+import { erpRequest, extractErrorMessage, setErpSid, setErpCsrf, setErpMobileToken } from "@/lib/erpApi";
 
 export type PcountEntry = {
   itemCode: string;
@@ -105,6 +105,7 @@ export const erpLogin = async (loginEmail: string, loginPassword: string): Promi
 
   setErpSid(readString(payload.sid) || readString(loginData.sid) || "");
   setErpCsrf(readString(payload.csrf_token) || readString(loginData.csrf_token) || "");
+  setErpMobileToken(readString(payload.mobile_token) || readString(loginData.mobile_token) || "");
 
   const employee = buildEmployeeFromErp(payload.user || loginData.user || loginEmail, loginEmail, {
     ...loginData,

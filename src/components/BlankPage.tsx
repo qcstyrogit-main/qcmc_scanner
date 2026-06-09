@@ -2,8 +2,14 @@ import React from "react";
 import Navigation from "@/components/Navigation";
 import ScanPage, { type ScanMode } from "@/components/ScanPage";
 import type { Employee, ViewType } from "@/types";
-import { loadLocalScanEntries } from "@/lib/scanStorage";
-import { ArrowLeft, Clock, LogIn, LogOut, PackageCheck, Power } from "lucide-react";
+import { submitPcountEntries } from "@/lib/erpService";
+import {
+  loadLocalScanEntries,
+  loadScannerDeviceName,
+  saveScannerDeviceName,
+  type LocalScanEntry,
+} from "@/lib/scanStorage";
+import { ArrowLeft, Clock, LogIn, LogOut, PackageCheck, Power, Send, Smartphone } from "lucide-react";
 
 interface BlankPageProps {
   employee: Employee;
@@ -15,10 +21,41 @@ const BlankPage: React.FC<BlankPageProps> = ({ employee, onLogout }) => {
   const [scanMode, setScanMode] = React.useState<ScanMode>("in");
   const [scanSessionKey, setScanSessionKey] = React.useState(0);
   const [showLogoutConfirm, setShowLogoutConfirm] = React.useState(false);
+  const [showDeviceNameDialog, setShowDeviceNameDialog] = React.useState(false);
+  const [deviceNameInput, setDeviceNameInput] = React.useState(() => loadScannerDeviceName());
+  const [selectedReconciliation, setSelectedReconciliation] = React.useState<string | null>(null);
+  const [historySubmitState, setHistorySubmitState] = React.useState<{
+    isSubmitting: boolean;
+    result: { ok: boolean; text: string } | null;
+  }>({ isSubmitting: false, result: null });
   const showScanPage = currentView === "scan";
   const savedScanEntries = React.useMemo(
     () => (currentView === "history" ? loadLocalScanEntries(employee.id) : []),
     [currentView, employee.id]
+  );
+  const reconciliationGroups = React.useMemo(() => {
+    const groups = new Map<string, LocalScanEntry[]>();
+
+    for (const entry of savedScanEntries) {
+      const current = groups.get(entry.reconciliationCode) || [];
+      current.push(entry);
+      groups.set(entry.reconciliationCode, current);
+    }
+
+    return Array.from(groups.entries()).map(([reference, entries]) => ({
+      reference,
+      entries,
+      latestTimestamp: entries[0]?.timestamp || "",
+      itemCount: entries.length,
+      pcountCount: entries.filter((entry) => entry.mode === "pcount").length,
+    }));
+  }, [savedScanEntries]);
+  const selectedEntries = React.useMemo(
+    () =>
+      selectedReconciliation
+        ? savedScanEntries.filter((entry) => entry.reconciliationCode === selectedReconciliation)
+        : [],
+    [savedScanEntries, selectedReconciliation]
   );
 
   const startScanner = (mode: ScanMode) => {
@@ -29,7 +66,68 @@ const BlankPage: React.FC<BlankPageProps> = ({ employee, onLogout }) => {
 
   const goBackHome = () => {
     setShowLogoutConfirm(false);
+    setSelectedReconciliation(null);
+    setHistorySubmitState({ isSubmitting: false, result: null });
     setCurrentView("dashboard");
+  };
+
+  const openHistory = () => {
+    setSelectedReconciliation(null);
+    setHistorySubmitState({ isSubmitting: false, result: null });
+    setCurrentView("history");
+  };
+
+  const saveDeviceName = () => {
+    saveScannerDeviceName(deviceNameInput);
+    setDeviceNameInput(loadScannerDeviceName());
+    setShowDeviceNameDialog(false);
+  };
+
+  const openReconciliation = (reference: string) => {
+    setSelectedReconciliation(reference);
+    setHistorySubmitState({ isSubmitting: false, result: null });
+  };
+
+  const closeReconciliation = () => {
+    setSelectedReconciliation(null);
+    setHistorySubmitState({ isSubmitting: false, result: null });
+  };
+
+  const submitSelectedReconciliation = async () => {
+    if (!selectedReconciliation || historySubmitState.isSubmitting) return;
+
+    const pcountEntries = selectedEntries
+      .filter((entry) => entry.mode === "pcount")
+      .map((entry) => ({
+        itemCode: entry.itemCode,
+        quantity: entry.quantity,
+        uom: entry.uom,
+        lotNo: entry.lotNo,
+        deviceId: entry.deviceId,
+        bin: entry.bin,
+      }));
+
+    if (pcountEntries.length === 0) {
+      setHistorySubmitState({
+        isSubmitting: false,
+        result: { ok: false, text: "No P. Count entries to submit for this reference." },
+      });
+      return;
+    }
+
+    setHistorySubmitState({ isSubmitting: true, result: null });
+    try {
+      const result = await submitPcountEntries(selectedReconciliation, pcountEntries);
+      setHistorySubmitState({
+        isSubmitting: false,
+        result: { ok: true, text: `${result.itemCount} item(s) saved to ${selectedReconciliation}.` },
+      });
+    } catch (err) {
+      setHistorySubmitState({
+        isSubmitting: false,
+        result: { ok: false, text: err instanceof Error ? err.message : "Submit failed." },
+      });
+    }
   };
 
   return (
@@ -242,6 +340,29 @@ const BlankPage: React.FC<BlankPageProps> = ({ employee, onLogout }) => {
       .home-action-danger {
         color: hsl(0 72% 48%);
       }
+      .home-device-name {
+        padding: 0 16px 16px;
+      }
+      .home-device-name .home-action {
+        width: 100%;
+      }
+      .device-dialog-input {
+        width: 100%;
+        min-height: 44px;
+        margin-top: 12px;
+        border: 1px solid hsl(var(--border));
+        border-radius: 11px;
+        background: hsl(var(--background));
+        color: hsl(var(--foreground));
+        font-family: 'Sora', sans-serif;
+        font-size: 14px;
+        outline: none;
+        padding: 0 12px;
+      }
+      .device-dialog-input:focus {
+        border-color: hsl(var(--primary) / 0.55);
+        background: hsl(var(--primary) / 0.05);
+      }
       .logout-dialog-backdrop {
         position: fixed;
         inset: 0;
@@ -335,6 +456,16 @@ const BlankPage: React.FC<BlankPageProps> = ({ employee, onLogout }) => {
         border-radius: 12px;
         background: hsl(var(--foreground) / 0.025);
         padding: 11px 12px;
+        color: hsl(var(--foreground));
+        font-family: 'Sora', sans-serif;
+        text-align: left;
+      }
+      button.history-item {
+        width: 100%;
+      }
+      button.history-item:hover {
+        border-color: hsl(var(--primary) / 0.35);
+        background: hsl(var(--primary) / 0.05);
       }
       .history-item-top {
         display: flex;
@@ -365,6 +496,22 @@ const BlankPage: React.FC<BlankPageProps> = ({ employee, onLogout }) => {
         font-size: 11px;
         line-height: 1.45;
         color: hsl(var(--muted-foreground));
+      }
+      .history-submit {
+        width: 100%;
+        margin-top: 14px;
+        border-color: transparent;
+        background: hsl(var(--primary));
+        color: white;
+      }
+      .history-submit:disabled {
+        opacity: 0.62;
+      }
+      .history-submit-result {
+        margin-top: 10px;
+        font-size: 12px;
+        line-height: 1.45;
+        font-weight: 700;
       }
     `}</style>
 
@@ -424,7 +571,7 @@ const BlankPage: React.FC<BlankPageProps> = ({ employee, onLogout }) => {
                   </button>
                 </div>
                 <div className="home-actions">
-                  <button type="button" className="home-action" onClick={() => setCurrentView("history")}>
+                  <button type="button" className="home-action" onClick={openHistory}>
                     <Clock size={16} />
                     History
                   </button>
@@ -433,40 +580,94 @@ const BlankPage: React.FC<BlankPageProps> = ({ employee, onLogout }) => {
                     Logout
                   </button>
                 </div>
+                <div className="home-device-name">
+                  <button type="button" className="home-action" onClick={() => {
+                    setDeviceNameInput(loadScannerDeviceName());
+                    setShowDeviceNameDialog(true);
+                  }}>
+                    <Smartphone size={16} />
+                    {loadScannerDeviceName() || "Set Device Name"}
+                  </button>
+                </div>
               </section>
             )}
             {currentView === "history" && (
               <section className="simple-view" aria-labelledby="history-title">
-                <div id="history-title" className="simple-view-title">History</div>
-                <div className="simple-view-text">
-                  {savedScanEntries.length > 0
-                    ? `${savedScanEntries.length} saved scan${savedScanEntries.length === 1 ? "" : "s"} on this device.`
-                    : "No saved history is available yet."}
+                <div id="history-title" className="simple-view-title">
+                  {selectedReconciliation ? selectedReconciliation : "History"}
                 </div>
-                {savedScanEntries.length > 0 && (
+                <div className="simple-view-text">
+                  {selectedReconciliation
+                    ? `${selectedEntries.length} item${selectedEntries.length === 1 ? "" : "s"} under this reconciliation reference.`
+                    : reconciliationGroups.length > 0
+                      ? `${reconciliationGroups.length} reconciliation reference${reconciliationGroups.length === 1 ? "" : "s"} saved on this device.`
+                      : "No saved history is available yet."}
+                </div>
+                {!selectedReconciliation && reconciliationGroups.length > 0 && (
                   <div className="history-list">
-                    {savedScanEntries.map((entry, index) => (
-                      <div className="history-item" key={`${entry.timestamp}-${entry.raw}-${index}`}>
+                    {reconciliationGroups.map((group) => (
+                      <button
+                        type="button"
+                        className="history-item"
+                        key={group.reference}
+                        onClick={() => openReconciliation(group.reference)}
+                      >
                         <div className="history-item-top">
-                          <div className="history-item-code">
-                            {entry.itemCode} - {entry.quantity.toFixed(2)} {entry.uom}
-                          </div>
-                          <div className="history-item-mode">
-                            {entry.mode === "pcount" ? "P. Count" : entry.mode.toUpperCase()}
-                          </div>
+                          <div className="history-item-code">{group.reference}</div>
+                          <div className="history-item-mode">{group.itemCount} item{group.itemCount === 1 ? "" : "s"}</div>
                         </div>
                         <div className="history-item-detail">
-                          {entry.qrQuantity.toFixed(2)} x {entry.multiplier} / Lot {entry.lotNo} / {entry.bin.bin}
+                          {group.pcountCount} P. Count / Latest: {group.latestTimestamp || "-"}
                         </div>
-                        <div className="history-item-detail">
-                          {entry.reconciliationCode} / {entry.timestamp}
-                        </div>
-                      </div>
+                      </button>
                     ))}
                   </div>
                 )}
+                {selectedReconciliation && (
+                  <>
+                    <div className="history-list">
+                      {selectedEntries.map((entry, index) => (
+                        <div className="history-item" key={`${entry.timestamp}-${entry.raw}-${index}`}>
+                          <div className="history-item-top">
+                            <div className="history-item-code">
+                              {entry.itemCode} - {entry.quantity.toFixed(2)} {entry.uom}
+                            </div>
+                            <div className="history-item-mode">
+                              {entry.mode === "pcount" ? "P. Count" : entry.mode.toUpperCase()}
+                            </div>
+                          </div>
+                          <div className="history-item-detail">
+                            {entry.qrQuantity.toFixed(2)} x {entry.multiplier} / Lot {entry.lotNo} / {entry.bin.bin}
+                          </div>
+                          <div className="history-item-detail">{entry.timestamp}</div>
+                        </div>
+                      ))}
+                    </div>
+                    <button
+                      type="button"
+                      className="home-action history-submit"
+                      onClick={submitSelectedReconciliation}
+                      disabled={historySubmitState.isSubmitting}
+                    >
+                      <Send size={16} />
+                      {historySubmitState.isSubmitting ? "Submitting..." : "Submit to ERP"}
+                    </button>
+                    {historySubmitState.result && (
+                      <div
+                        className="history-submit-result"
+                        style={{ color: historySubmitState.result.ok ? "hsl(142 71% 45%)" : "hsl(0 84% 60%)" }}
+                      >
+                        {historySubmitState.result.text}
+                      </div>
+                    )}
+                  </>
+                )}
                 <div className="simple-view-actions">
-                  <button type="button" className="home-action simple-back-button" onClick={goBackHome}>
+                  <button
+                    type="button"
+                    className="home-action simple-back-button"
+                    onClick={selectedReconciliation ? closeReconciliation : goBackHome}
+                  >
                     <ArrowLeft size={16} />
                     Back
                   </button>
@@ -488,6 +689,29 @@ const BlankPage: React.FC<BlankPageProps> = ({ employee, onLogout }) => {
               </button>
               <button type="button" className="logout-dialog-button logout-dialog-button-primary" onClick={onLogout}>
                 Yes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {showDeviceNameDialog && (
+        <div className="logout-dialog-backdrop" onClick={() => setShowDeviceNameDialog(false)}>
+          <div className="logout-dialog" role="dialog" aria-modal="true" aria-labelledby="device-name-title" onClick={(event) => event.stopPropagation()}>
+            <div id="device-name-title" className="logout-dialog-title">Device Name</div>
+            <div className="logout-dialog-text">This name will be saved with new scans and submitted to ERP.</div>
+            <input
+              className="device-dialog-input"
+              value={deviceNameInput}
+              onChange={(event) => setDeviceNameInput(event.target.value)}
+              placeholder="Example: Scanner A"
+              autoFocus
+            />
+            <div className="logout-dialog-actions">
+              <button type="button" className="logout-dialog-button" onClick={() => setShowDeviceNameDialog(false)}>
+                Cancel
+              </button>
+              <button type="button" className="logout-dialog-button logout-dialog-button-primary" onClick={saveDeviceName}>
+                Save
               </button>
             </div>
           </div>

@@ -25,6 +25,7 @@ export type LocalScanEntry = {
 };
 
 const MAX_LOCAL_ENTRIES = 300;
+const SCANNER_DEVICE_NAME_KEY = "qcmc.scanner.deviceName";
 
 const storageKey = (employeeId: string) => `qcmc.scan.entries.${employeeId}`;
 
@@ -88,5 +89,31 @@ export const saveLocalScanEntries = (employeeId: string, entries: LocalScanEntry
     localStorage.setItem(storageKey(employeeId), JSON.stringify(entries.slice(0, MAX_LOCAL_ENTRIES)));
   } catch {
     // Ignore local storage failures so scanning can continue.
+  }
+};
+
+export const appendLocalScanEntry = (employeeId: string, entry: LocalScanEntry) => {
+  const current = loadLocalScanEntries(employeeId);
+  saveLocalScanEntries(employeeId, [entry, ...current]);
+};
+
+export const loadScannerDeviceName = () => {
+  try {
+    return localStorage.getItem(SCANNER_DEVICE_NAME_KEY)?.trim() || "";
+  } catch {
+    return "";
+  }
+};
+
+export const saveScannerDeviceName = (deviceName: string) => {
+  const cleaned = deviceName.trim();
+  try {
+    if (cleaned) {
+      localStorage.setItem(SCANNER_DEVICE_NAME_KEY, cleaned);
+    } else {
+      localStorage.removeItem(SCANNER_DEVICE_NAME_KEY);
+    }
+  } catch {
+    // Ignore local storage failures.
   }
 };

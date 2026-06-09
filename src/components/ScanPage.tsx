@@ -6,13 +6,13 @@ import {
   MapPin,
   RotateCcw,
   Send,
+  Trash2,
 } from "lucide-react";
-import { Device } from "@capacitor/device";
 import type { Employee } from "@/types";
 import { submitPcountEntries } from "@/lib/erpService";
 import {
-  loadLocalScanEntries,
-  saveLocalScanEntries,
+  appendLocalScanEntry,
+  loadScannerDeviceName,
   type LocalBinLocation,
   type LocalScanEntry,
 } from "@/lib/scanStorage";
@@ -94,6 +94,15 @@ const getTime = () =>
     second: "2-digit",
   });
 
+const getScannerDeviceName = () => {
+  const savedName = loadScannerDeviceName();
+  if (savedName) {
+    return savedName;
+  }
+
+  return "Unset Device Name";
+};
+
 const ScanPage: React.FC<ScanPageProps> = ({ employee, initialMode, sessionKey }) => {
   const [mode, setMode] = React.useState<ScanMode>(initialMode);
   const [step, setStep] = React.useState<ScanStep>("reconciliation");
@@ -101,24 +110,43 @@ const ScanPage: React.FC<ScanPageProps> = ({ employee, initialMode, sessionKey }
   const [reconciliationCode, setReconciliationCode] = React.useState("");
   const [currentBin, setCurrentBin] = React.useState<BinLocation | null>(null);
   const [pendingItem, setPendingItem] = React.useState<PendingItem | null>(null);
-  const [entries, setEntries] = React.useState<ItemScan[]>(() => loadLocalScanEntries(employee.id));
+  const [entries, setEntries] = React.useState<ItemScan[]>([]);
   const [message, setMessage] = React.useState("Select a mode, then scan the reconciliation QR first.");
   const [qtyDefaultActive, setQtyDefaultActive] = React.useState(false);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
   const [submitResult, setSubmitResult] = React.useState<{ ok: boolean; text: string } | null>(null);
-  const [deviceId, setDeviceId] = React.useState("");
+  const [showClearConfirm, setShowClearConfirm] = React.useState(false);
+  const [deviceName, setDeviceName] = React.useState("");
   const inputRef = React.useRef<HTMLInputElement>(null);
   const scannerBufferRef = React.useRef("");
 
-  React.useEffect(() => {
-    Device.getId()
-      .then((info) => setDeviceId(info.identifier))
-      .catch(() => setDeviceId(""));
+  const refreshDeviceName = React.useCallback(() => {
+    const nextDeviceName = getScannerDeviceName();
+    setDeviceName(nextDeviceName);
+    return nextDeviceName;
   }, []);
 
   React.useEffect(() => {
-    saveLocalScanEntries(employee.id, entries);
-  }, [employee.id, entries]);
+    refreshDeviceName();
+  }, [refreshDeviceName]);
+
+  React.useEffect(() => {
+    const handleFocus = () => {
+      refreshDeviceName();
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        refreshDeviceName();
+      }
+    };
+
+    window.addEventListener("focus", handleFocus);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      window.removeEventListener("focus", handleFocus);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [refreshDeviceName]);
 
   const handleSubmitToErp = React.useCallback(async () => {
     if (!reconciliationCode || isSubmitting) return;
@@ -155,14 +183,17 @@ const ScanPage: React.FC<ScanPageProps> = ({ employee, initialMode, sessionKey }
     inputRef.current?.focus();
   }, []);
 
-  const triggerScanner = React.useCallback(() => {
-    focusScanner();
-    window.QcmcScanner?.startScan?.();
-  }, [focusScanner]);
-
   const stopScanner = React.useCallback(() => {
     window.QcmcScanner?.stopScan?.();
   }, []);
+
+  const clearItems = () => {
+    setEntries([]);
+    setSubmitResult(null);
+    setShowClearConfirm(false);
+    setMessage("Current scanned items cleared. History is still saved.");
+    focusScanner();
+  };
 
   React.useEffect(() => {
     setMode(initialMode);
@@ -202,7 +233,7 @@ const ScanPage: React.FC<ScanPageProps> = ({ employee, initialMode, sessionKey }
   };
 
   const processScan = React.useCallback(
-    (rawCode: string) => {
+    async (rawCode: string) => {
       stopScanner();
       const code = rawCode.trim();
       if (!code) return;
@@ -284,23 +315,23 @@ const ScanPage: React.FC<ScanPageProps> = ({ employee, initialMode, sessionKey }
         }
 
         const quantity = pendingItem.qrQuantity * multiplier;
-        setEntries((current) => [
-          {
-            raw: pendingItem.raw,
-            mode,
-            reconciliationCode,
-            bin: currentBin,
-            itemCode: pendingItem.itemCode,
-            qrQuantity: pendingItem.qrQuantity,
-            multiplier,
-            quantity,
-            uom: pendingItem.uom,
-            lotNo: pendingItem.lotNo,
-            timestamp: getTime(),
-            deviceId,
-          },
-          ...current,
-        ]);
+        const currentDeviceName = refreshDeviceName();
+        const entry = {
+          raw: pendingItem.raw,
+          mode,
+          reconciliationCode,
+          bin: currentBin,
+          itemCode: pendingItem.itemCode,
+          qrQuantity: pendingItem.qrQuantity,
+          multiplier,
+          quantity,
+          uom: pendingItem.uom,
+          lotNo: pendingItem.lotNo,
+          timestamp: getTime(),
+          deviceId: currentDeviceName,
+        };
+        setEntries((current) => [entry, ...current]);
+        appendLocalScanEntry(employee.id, entry);
         setPendingItem(null);
         setStep("item");
         setScanValue("");
@@ -328,7 +359,7 @@ const ScanPage: React.FC<ScanPageProps> = ({ employee, initialMode, sessionKey }
         `${item.itemCode} scanned. QR qty is ${item.qrQuantity.toFixed(2)} ${item.uom}. Enter qty to multiply.`
       );
     },
-    [currentBin, deviceId, mode, pendingItem, reconciliationCode, step, stopScanner]
+    [currentBin, employee.id, mode, pendingItem, reconciliationCode, refreshDeviceName, step, stopScanner]
   );
 
   React.useEffect(() => {
@@ -553,6 +584,9 @@ const ScanPage: React.FC<ScanPageProps> = ({ employee, initialMode, sessionKey }
           align-items: center;
           gap: 7px;
         }
+        .scan-action-danger {
+          color: hsl(0 72% 48%);
+        }
         .scan-message {
           margin-top: 10px;
           font-size: 12px;
@@ -650,6 +684,56 @@ const ScanPage: React.FC<ScanPageProps> = ({ employee, initialMode, sessionKey }
           font-size: 13px;
           color: hsl(var(--muted-foreground));
         }
+        .scan-confirm-backdrop {
+          position: fixed;
+          inset: 0;
+          z-index: 90;
+          background: rgba(15, 23, 42, 0.38);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 18px;
+        }
+        .scan-confirm-dialog {
+          width: min(100%, 340px);
+          background: hsl(var(--card));
+          border: 1px solid hsl(var(--border));
+          border-radius: 16px;
+          box-shadow: 0 24px 60px rgba(15, 23, 42, 0.24);
+          padding: 18px;
+        }
+        .scan-confirm-title {
+          font-size: 17px;
+          font-weight: 800;
+          color: hsl(var(--foreground));
+        }
+        .scan-confirm-text {
+          margin-top: 6px;
+          font-size: 12px;
+          line-height: 1.5;
+          color: hsl(var(--muted-foreground));
+        }
+        .scan-confirm-actions {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 10px;
+          margin-top: 18px;
+        }
+        .scan-confirm-button {
+          min-height: 42px;
+          border-radius: 11px;
+          border: 1px solid hsl(var(--border));
+          background: hsl(var(--background));
+          color: hsl(var(--foreground));
+          font-family: 'Sora', sans-serif;
+          font-size: 13px;
+          font-weight: 800;
+        }
+        .scan-confirm-button-primary {
+          border-color: transparent;
+          background: hsl(0 72% 48%);
+          color: white;
+        }
 
         @media (min-width: 768px) {
           .scan-page {
@@ -703,6 +787,15 @@ const ScanPage: React.FC<ScanPageProps> = ({ employee, initialMode, sessionKey }
               <div className="scan-context-detail">
                 {mode === "pcount" ? "Physical count for actual stock on hand." : "Inventory item movement."}
               </div>
+            </div>
+
+            <div className="scan-context-card">
+              <div className="scan-context-title">
+                <Barcode size={15} />
+                Device Name
+              </div>
+              <div className="scan-context-main">{deviceName}</div>
+              <div className="scan-context-detail">Set this on Home before scanning.</div>
             </div>
 
             <div className="scan-context-card">
@@ -767,9 +860,9 @@ const ScanPage: React.FC<ScanPageProps> = ({ employee, initialMode, sessionKey }
               inputMode={step === "qty" ? "decimal" : "none"}
             />
             <div className="scan-actions">
-              <button type="button" className="scan-action" onClick={triggerScanner}>
-                <Barcode size={15} />
-                Scan
+              <button type="button" className="scan-action scan-action-danger" onClick={() => setShowClearConfirm(true)}>
+                <Trash2 size={15} />
+                Clear Items
               </button>
               <button type="button" className="scan-action" onClick={scanAnotherReconciliation}>
                 <CheckCircle2 size={15} />
@@ -849,6 +942,23 @@ const ScanPage: React.FC<ScanPageProps> = ({ employee, initialMode, sessionKey }
           )}
         </div>
       </section>
+
+      {showClearConfirm && (
+        <div className="scan-confirm-backdrop" onClick={() => setShowClearConfirm(false)}>
+          <div className="scan-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="clear-items-title" onClick={(event) => event.stopPropagation()}>
+            <div id="clear-items-title" className="scan-confirm-title">Clear items?</div>
+            <div className="scan-confirm-text">This will clear only the current scanned items. Saved History will remain.</div>
+            <div className="scan-confirm-actions">
+              <button type="button" className="scan-confirm-button" onClick={() => setShowClearConfirm(false)}>
+                No
+              </button>
+              <button type="button" className="scan-confirm-button scan-confirm-button-primary" onClick={clearItems}>
+                Yes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 };
