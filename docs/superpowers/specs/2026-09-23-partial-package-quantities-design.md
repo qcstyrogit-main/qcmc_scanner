@@ -84,14 +84,22 @@ Complete packages remain the fast path:
 2. Package status defaults to Complete.
 3. With automatic quantity enabled, immediately record the full QR quantity with no extra dialog.
 
-The existing quantity dialog gains a clear Complete/Open Package choice when the operator opens quantity controls. Selecting Opened Package replaces multiplier input with:
+The existing quantity dialog gains a two-option Package Status selector directly below the scanned-item card:
+
+```text
+[ Complete Package ] [ Opened Package ]
+```
+
+Complete Package is selected by default. In this mode, the existing `Count` label becomes `Package Count`; its value remains a multiplier, and the total shows the QR quantity multiplied by the package count.
+
+Selecting Opened Package replaces Package Count with:
 
 - QR Quantity, read-only
 - Actual Quantity Remaining, required
 - Difference, calculated as `actualQuantity - qrQuantity`
 - Status, Opened
 
-The confirmation button states the amount that will be added or deducted and is disabled when invalid or processing. Copy must say “remaining” for Physical Count and must not describe this value as an amount being removed.
+The summary immediately above the actions displays QR Quantity, Difference, and Quantity to be Counted. The confirmation button states the amount that will be added or deducted, such as `Add 495 PCS`, and is disabled when invalid or processing. Copy must say “remaining” for Physical Count and must not describe this value as an amount being removed.
 
 The scan-detail history and final review expose package status and original-versus-actual quantities when package metadata exists. Legacy/manual transactions retain their existing display.
 
