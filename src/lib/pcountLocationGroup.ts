@@ -73,3 +73,12 @@ export const getMultiLocationQuantitySummary = (
   locationCount,
   totalQuantity: quantityPerLocation * locationCount,
 });
+
+export const validatePcountLocationGroup = async <T>(
+  locations: LocalPcountLocation[],
+  validate: (location: LocalPcountLocation) => Promise<T>,
+): Promise<T[]> => {
+  const results: T[] = [];
+  for (const location of locations) results.push(await validate(location));
+  return results;
+};

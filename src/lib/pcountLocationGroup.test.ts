@@ -5,6 +5,7 @@ import {
   getActivePcountGroupLocations,
   getMultiLocationQuantitySummary,
   removePcountGroupLocation,
+  validatePcountLocationGroup,
 } from "@/lib/pcountLocationGroup";
 import type { LocalBinLocation, LocalPcountLocation, LocalScanEntry } from "@/lib/scanStorage";
 
@@ -142,5 +143,23 @@ describe("Physical Count location groups", () => {
     ]);
     expect(getMultiLocationQuantitySummary(1000.25, 2).totalQuantity).toBe(2000.5);
     expect(expandPcountEntryForLocations(source, [], (id) => id)).toEqual([]);
+  });
+
+  it("validates every location in input order before the caller persists anything", async () => {
+    const locations = ["A", "B", "C"].map((id): LocalPcountLocation => ({
+      bin: bin(id), status: "in_progress", groupId: "GROUP-1", lastScanTime: "now",
+    }));
+    const visited: string[] = [];
+    let persisted = false;
+
+    await expect(validatePcountLocationGroup(locations, async (location) => {
+      const id = location.bin.locationId || "";
+      visited.push(id);
+      if (id === "C") throw new Error("C cannot accept this item");
+      return id;
+    }).then(() => { persisted = true; })).rejects.toThrow("C cannot accept this item");
+
+    expect(visited).toEqual(["A", "B", "C"]);
+    expect(persisted).toBe(false);
   });
 });
