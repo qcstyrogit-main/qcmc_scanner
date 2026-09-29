@@ -6,8 +6,12 @@ import {
   getActivePcountGroupLocations,
   getMultiLocationQuantitySummary,
   getPcountSessionRestoreState,
+  getEffectivePcountLocationMode,
+  completePcountLocationMode,
+  lockPcountLocationMode,
   requirePcountLocationConversionFactor,
   removePcountGroupLocation,
+  removePcountLocationFromSession,
   validatePcountLocationGroup,
 } from "@/lib/pcountLocationGroup";
 import type { LocalBinLocation, LocalPcountLocation, LocalScanEntry } from "@/lib/scanStorage";
@@ -193,5 +197,37 @@ describe("Physical Count location groups", () => {
 
     expect(result.session.reconciliationWarehouse).toBe("FG - MC2");
     expect(result.added).toBe(true);
+  });
+
+  it("switches mode after completion without changing the reconciliation or completed locations", () => {
+    const session = {
+      reconciliationCode: "MAT-RECO-1", reconciliationWarehouse: "FG - MC2", locationMode: "multi" as const,
+      activeLocationMode: "multi" as const, activeGroupId: "GROUP-1", activeLocationId: "A",
+      locations: [{ bin: bin("A"), status: "in_progress" as const, groupId: "GROUP-1", lastScanTime: "now" }],
+      updatedAt: "now", validationStatus: "validated" as const,
+    };
+
+    expect(getEffectivePcountLocationMode(session, "single")).toBe("multi");
+    const completed = completePcountLocationMode(session);
+    expect(completed.reconciliationCode).toBe("MAT-RECO-1");
+    expect(completed.locations).toEqual(session.locations);
+    expect(completed.activeLocationMode).toBeUndefined();
+    expect(getEffectivePcountLocationMode(completed, "single")).toBe("single");
+    expect(lockPcountLocationMode(completed, "single").activeLocationMode).toBe("single");
+  });
+
+  it("unlocks Multi mode when the final selected location is removed", () => {
+    const session = {
+      reconciliationCode: "MAT-RECO-1", reconciliationWarehouse: "FG - MC2", locationMode: "multi" as const,
+      activeLocationMode: "multi" as const, activeGroupId: "GROUP-1", activeLocationId: "",
+      locations: [{ bin: bin("A"), status: "in_progress" as const, groupId: "GROUP-1", lastScanTime: "now" }],
+      updatedAt: "now", validationStatus: "validated" as const,
+    };
+
+    const removed = removePcountLocationFromSession(session, "A");
+    expect(removed.locations).toEqual([]);
+    expect(removed.activeLocationMode).toBeUndefined();
+    expect(removed.activeGroupId).toBe("");
+    expect(getEffectivePcountLocationMode(removed, "single")).toBe("single");
   });
 });

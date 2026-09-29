@@ -84,15 +84,41 @@ export const validatePcountLocationGroup = async <T>(
 };
 
 export const getPcountSessionRestoreState = (
-  session: Pick<LocalPcountSession, "locationMode" | "activeGroupId" | "activeLocationId" | "locations">
+  session: Pick<LocalPcountSession, "locationMode" | "activeLocationMode" | "activeGroupId" | "activeLocationId" | "locations">
 ) => {
   const activeLocation = session.locations.find((location) => location.bin.locationId === session.activeLocationId);
-  if (session.locationMode === "multi") {
+  if ((session.activeLocationMode || session.locationMode) === "multi") {
     const group = getActivePcountGroupLocations(session.locations, session.activeGroupId);
     const isScanning = Boolean(session.activeLocationId && activeLocation && group.some((location) => location.bin.locationId === activeLocation.bin.locationId));
     return { step: isScanning ? "item" as const : "bin" as const, isScanSessionActive: isScanning, currentBin: isScanning ? activeLocation!.bin : null };
   }
   return { step: activeLocation ? "item" as const : "bin" as const, isScanSessionActive: Boolean(activeLocation), currentBin: activeLocation?.bin || null };
+};
+
+export const getEffectivePcountLocationMode = (
+  session: LocalPcountSession | null,
+  preference: "single" | "multi",
+) => session?.activeLocationMode || preference;
+
+export const lockPcountLocationMode = (
+  session: LocalPcountSession,
+  mode: "single" | "multi",
+): LocalPcountSession => ({ ...session, locationMode: mode, activeLocationMode: mode });
+
+export const completePcountLocationMode = (session: LocalPcountSession): LocalPcountSession => {
+  const { activeLocationMode: _activeLocationMode, ...completed } = session;
+  return { ...completed, activeGroupId: "", activeLocationId: "" };
+};
+
+export const removePcountLocationFromSession = (
+  session: LocalPcountSession,
+  locationId: string,
+): LocalPcountSession => {
+  const locations = removePcountGroupLocation(session.locations, locationId, session.activeGroupId);
+  const updated = { ...session, locations, updatedAt: new Date().toISOString() };
+  return getActivePcountGroupLocations(locations, session.activeGroupId).length === 0
+    ? completePcountLocationMode(updated)
+    : updated;
 };
 
 export const requirePcountLocationConversionFactor = (
