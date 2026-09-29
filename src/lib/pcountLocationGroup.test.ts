@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   addPcountGroupLocation,
+  addPcountLocationToSession,
   expandPcountEntryForLocations,
   getActivePcountGroupLocations,
   getMultiLocationQuantitySummary,
+  getPcountSessionRestoreState,
+  requirePcountLocationConversionFactor,
   removePcountGroupLocation,
   validatePcountLocationGroup,
 } from "@/lib/pcountLocationGroup";
@@ -161,5 +164,34 @@ describe("Physical Count location groups", () => {
 
     expect(visited).toEqual(["A", "B", "C"]);
     expect(persisted).toBe(false);
+  });
+
+  it("restores a selected multi-location group to the picker until Continue to Items", () => {
+    const selected = [{ bin: bin("A"), status: "in_progress" as const, groupId: "GROUP-1", lastScanTime: "now" }];
+    expect(getPcountSessionRestoreState({ locationMode: "multi", activeGroupId: "GROUP-1", activeLocationId: "", locations: selected })).toEqual({
+      step: "bin",
+      isScanSessionActive: false,
+      currentBin: null,
+    });
+    expect(getPcountSessionRestoreState({ locationMode: "multi", activeGroupId: "GROUP-1", activeLocationId: "A", locations: selected })).toMatchObject({
+      step: "item",
+      isScanSessionActive: true,
+      currentBin: bin("A"),
+    });
+  });
+
+  it("rejects a missing UOM conversion instead of treating it as one", () => {
+    expect(() => requirePcountLocationConversionFactor(null, "ITEM", "PCS", "KG")).toThrow(/No Item UOM conversion/i);
+    expect(requirePcountLocationConversionFactor(2, "ITEM", "PCS", "BOX")).toBe(2);
+  });
+
+  it("persists the inferred warehouse when adding the first offline group location", () => {
+    const result = addPcountLocationToSession({
+      reconciliationCode: "MAT-RECO-1", reconciliationWarehouse: "", locationMode: "multi",
+      activeGroupId: "GROUP-1", activeLocationId: "", locations: [], updatedAt: "before", validationStatus: "pending",
+    }, bin("A"), "FG - MC2", "now");
+
+    expect(result.session.reconciliationWarehouse).toBe("FG - MC2");
+    expect(result.added).toBe(true);
   });
 });

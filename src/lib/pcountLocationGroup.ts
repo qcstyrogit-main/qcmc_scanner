@@ -1,4 +1,4 @@
-import type { LocalBinLocation, LocalPcountLocation, LocalScanEntry } from "@/lib/scanStorage";
+import type { LocalBinLocation, LocalPcountLocation, LocalPcountSession, LocalScanEntry } from "@/lib/scanStorage";
 
 const normalizeLocationId = (value: string | undefined) =>
   (value || "").trim().toLocaleLowerCase();
@@ -81,4 +81,44 @@ export const validatePcountLocationGroup = async <T>(
   const results: T[] = [];
   for (const location of locations) results.push(await validate(location));
   return results;
+};
+
+export const getPcountSessionRestoreState = (
+  session: Pick<LocalPcountSession, "locationMode" | "activeGroupId" | "activeLocationId" | "locations">
+) => {
+  const activeLocation = session.locations.find((location) => location.bin.locationId === session.activeLocationId);
+  if (session.locationMode === "multi") {
+    const group = getActivePcountGroupLocations(session.locations, session.activeGroupId);
+    const isScanning = Boolean(session.activeLocationId && activeLocation && group.some((location) => location.bin.locationId === activeLocation.bin.locationId));
+    return { step: isScanning ? "item" as const : "bin" as const, isScanSessionActive: isScanning, currentBin: isScanning ? activeLocation!.bin : null };
+  }
+  return { step: activeLocation ? "item" as const : "bin" as const, isScanSessionActive: Boolean(activeLocation), currentBin: activeLocation?.bin || null };
+};
+
+export const requirePcountLocationConversionFactor = (
+  conversionFactor: number | null | undefined,
+  itemCode: string,
+  stockUom: string,
+  barcodeUom: string,
+) => {
+  if (!conversionFactor) throw new Error(`${itemCode} uses ${stockUom} in ERPNext; barcode contains ${barcodeUom}. No Item UOM conversion is available.`);
+  return conversionFactor;
+};
+
+export const addPcountLocationToSession = (
+  session: LocalPcountSession,
+  bin: LocalBinLocation,
+  requiredWarehouse: string,
+  scannedAt: string,
+) => {
+  const result = addPcountGroupLocation(session.locations, bin, session.activeGroupId, scannedAt);
+  return {
+    added: result.added,
+    session: {
+      ...session,
+      reconciliationWarehouse: session.reconciliationWarehouse || requiredWarehouse,
+      locations: result.locations,
+      updatedAt: scannedAt,
+    },
+  };
 };
