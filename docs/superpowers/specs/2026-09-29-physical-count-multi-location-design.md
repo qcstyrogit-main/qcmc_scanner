@@ -4,7 +4,7 @@
 
 Add an optional Physical Count workflow for stock that is present in many storage locations. The warehouse operator scans a group of locations once, scans each item once, and enters one quantity per item. The entered quantity is copied in full to every selected location; it is never divided between locations.
 
-The existing single-location workflow must remain unchanged and continue to be the default for existing saved sessions.
+The existing single-location workflow must remain unchanged and continue to be the default for existing saved sessions. One Stock Reconciliation transaction may contain completed Single Location and Multi Location work. Operators may switch in either direction only after completing the active location or location group.
 
 ## User-visible modes
 
@@ -13,7 +13,15 @@ The center Mode menu will expose two Physical Count location modes alongside the
 - **Single Location**: the existing `Reconciliation -> Location -> Items -> Next Location` workflow.
 - **Multi Location**: the new `Reconciliation -> Locations -> Items -> Next Location Group` workflow.
 
-Automatic/Manual continues to control scanner input. Big Pack/Loose Pack continues to control quantity interpretation. Single/Multi Location controls only the Physical Count location workflow.
+Automatic/Manual continues to control scanner input. Big Pack/Loose Pack continues to control quantity interpretation. Single/Multi Location controls only the next Physical Count location workflow and never reinterprets completed work.
+
+## Mixed-mode transactions
+
+A Physical Count keeps one Stock Reconciliation reference while allowing multiple completed location groups with different modes. For example, an operator may count Locations A-C in Multi Location mode, select **Next Location**, change to Single Location mode, count Location D, and submit all four locations together.
+
+The current device preference becomes the `activeLocationMode` when the operator starts a new location or group. Once the first location is scanned, that mode is locked until **Next Location** completes the active work. A Mode-menu change attempted during unfinished work is refused with a message instructing the operator to complete the current location first.
+
+After **Next Location**, `activeLocationMode` is cleared. The operator may select either mode for the next location/group without clearing the reconciliation, completed entries, or audit history. Both **Single -> Multi** and **Multi -> Single** are supported.
 
 ## Multi-location workflow
 
@@ -53,12 +61,12 @@ Removing a location is allowed while selecting locations. Once item counts exist
 
 ## Session and data model
 
-The saved Physical Count session gains a location mode with values `single` and `multi`. Missing values deserialize as `single` for backward compatibility.
+The saved Physical Count session gains an optional active location mode with values `single` and `multi`. It applies only to unfinished work. Missing legacy values deserialize safely: an unfinished legacy session infers its active mode from the former session-level mode, while a session with no unfinished location/group has no active mode.
 
 A Multi Location session persists:
 
 - The reconciliation identity and warehouse.
-- The selected location mode.
+- The active location mode for unfinished work, if any.
 - The current selected-location group.
 - A stable local group identifier.
 - Each generated item/location count entry.
@@ -94,11 +102,11 @@ The implementation must verify this assumption against the existing client seria
 
 ## Compatibility
 
-- Single Location remains the default and retains its current scan sequence.
-- Existing saved sessions without a location-mode field load as Single Location.
+- Single Location remains the default device preference and retains its current scan sequence.
+- Existing saved sessions with a session-level location mode migrate into the active-mode model without changing unfinished work.
 - Automatic/Manual and Big Pack/Loose Pack remain independent preferences.
 - Existing Physical Count submission history and transaction views continue to consume ordinary item/location entries.
-- Switching location mode must not reinterpret or migrate an active count. The app must require the active Physical Count session to be completed or discarded before switching between Single and Multi Location.
+- Switching location mode must not reinterpret active or completed work. The app refuses switching while a location/group is unfinished, but permits switching after **Next Location** while retaining the same reconciliation and all previous counts.
 
 ## Test coverage
 
@@ -117,7 +125,9 @@ Automated tests will cover:
 - Next Location completing and clearing the current group.
 - Offline reload without duplicate generated entries.
 - ERP serialization of one row per item/location combination.
-- Preventing mode changes during an active session.
+- Preventing mode changes during an unfinished location/group.
+- Allowing Single-to-Multi and Multi-to-Single changes after **Next Location** within the same reconciliation.
+- Preserving earlier entries and submitting mixed-mode rows together.
 - Regression coverage for the existing Single Location workflow.
 
 Verification will run the relevant unit tests, the full test suite, TypeScript checking, and linting. Android/APK builds are outside this change unless separately requested.
