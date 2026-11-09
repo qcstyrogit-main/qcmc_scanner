@@ -20,9 +20,16 @@ describe("scanner quantity mode preference", () => {
     });
   });
 
-  it("defaults to automatic and permanently stores a manual selection", () => {
+  it("defaults to manual and preserves an explicit automatic selection", () => {
+    expect(loadScannerQuantityMode()).toBe("manual");
+    expect(saveScannerQuantityMode("automatic")).toBe("automatic");
     expect(loadScannerQuantityMode()).toBe("automatic");
     expect(saveScannerQuantityMode("manual")).toBe("manual");
+    expect(loadScannerQuantityMode()).toBe("manual");
+  });
+
+  it("falls back to manual for an unknown saved quantity mode", () => {
+    values.set("qcmc.scanner.quantityMode.v1", "unknown");
     expect(loadScannerQuantityMode()).toBe("manual");
   });
 

@@ -11,6 +11,22 @@ node_modules
 dist
 dist-ssr
 *.local
+.tools/
+*.apk
+
+# Environment configuration
+.env
+.env.*
+!.env.example
+
+# Local inspection files, data, and test output
+.scanner-inspect/
+data/
+test-results.txt
+
+# Android signing keys
+*.jks
+*.keystore
 
 # Editor directories and files
 .vscode/*

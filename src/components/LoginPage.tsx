@@ -1,6 +1,16 @@
 ﻿import React, { useState } from 'react';
-import { Clock, Shield, Users, Zap, Eye, EyeOff, Loader2 } from 'lucide-react';
+import { useCallback, useEffect, useRef } from 'react';
+import { Clock, Shield, Users, Zap, Eye, EyeOff, Loader2, QrCode, ScanLine, Settings2, Wifi, X } from 'lucide-react';
+import { QRCodeSVG } from 'qrcode.react';
 import appLogo from '@/assets/app-logo-transparent.png';
+import {
+  erpRequest,
+  getActiveErpBaseUrl,
+  getCustomErpBaseUrl,
+  setErpConnectionPreference,
+  setCustomErpBaseUrl,
+} from '@/lib/erpApi';
+import { createErpConnectionQrValue, normalizeErpConnectionQrValue } from '@/lib/erpConnectionQr';
 
 interface LoginPageProps {
   onLogin: (email: string, password: string) => void;
@@ -13,11 +23,103 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, isLoading = false, error
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [showConnectionSettings, setShowConnectionSettings] = useState(false);
+  const [customErpUrl, setCustomErpUrlState] = useState(() => getCustomErpBaseUrl());
+  const [connectionSettingsError, setConnectionSettingsError] = useState('');
+  const [connectionTest, setConnectionTest] = useState<{ loading: boolean; ok?: boolean; message?: string }>({ loading: false });
+  const [connectionQrUrl, setConnectionQrUrl] = useState('');
+  const connectionInputRef = useRef<HTMLInputElement>(null);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     onLogin(email, password);
   };
+
+  const applySelectedConnection = () => {
+    try {
+      setCustomErpBaseUrl(customErpUrl);
+      setErpConnectionPreference('custom');
+      setConnectionSettingsError('');
+    } catch (customError) {
+      const message = customError instanceof Error ? customError.message : 'Invalid custom ERP URL.';
+      setConnectionSettingsError(message);
+      throw customError;
+    }
+  };
+
+  const testConnection = async () => {
+    if (connectionTest.loading) return;
+    try {
+      applySelectedConnection();
+      setConnectionTest({ loading: true });
+      const response = await erpRequest('/api/method/ping', {
+        method: 'GET',
+        retryOn403: false,
+      });
+      if (!response.ok) throw new Error(`ERP returned HTTP ${response.status}`);
+      setConnectionTest({ loading: false, ok: true, message: `Connected to ${getActiveErpBaseUrl()}` });
+    } catch (connectionError) {
+      setConnectionTest({
+        loading: false,
+        ok: false,
+        message: connectionError instanceof Error ? connectionError.message : 'Unable to reach the selected ERP.',
+      });
+    }
+  };
+
+  const closeConnectionSettings = () => {
+    try {
+      applySelectedConnection();
+      setShowConnectionSettings(false);
+    } catch {
+      // Keep the dialog open so the URL can be corrected.
+    }
+  };
+
+  const applyScannedConnection = useCallback((rawValue: string) => {
+    try {
+      const normalizedUrl = normalizeErpConnectionQrValue(rawValue);
+      setCustomErpBaseUrl(normalizedUrl);
+      setErpConnectionPreference('custom');
+      setCustomErpUrlState(normalizedUrl);
+      setConnectionQrUrl('');
+      setConnectionSettingsError('');
+      setConnectionTest({ loading: false, ok: true, message: `ERP URL loaded: ${normalizedUrl}` });
+    } catch (scanError) {
+      setConnectionSettingsError(scanError instanceof Error ? scanError.message : 'Invalid ERP connection QR.');
+    }
+  }, []);
+
+  const generateConnectionQr = () => {
+    try {
+      const normalizedUrl = createErpConnectionQrValue(customErpUrl);
+      setCustomErpBaseUrl(normalizedUrl);
+      setErpConnectionPreference('custom');
+      setCustomErpUrlState(normalizedUrl);
+      setConnectionQrUrl(normalizedUrl);
+      setConnectionSettingsError('');
+    } catch (qrError) {
+      setConnectionSettingsError(qrError instanceof Error ? qrError.message : 'Unable to generate the ERP connection QR.');
+    }
+  };
+
+  const startConnectionQrScan = () => {
+    setConnectionQrUrl('');
+    setConnectionSettingsError('');
+    connectionInputRef.current?.focus();
+    window.QcmcScanner?.startScan?.();
+  };
+
+  useEffect(() => {
+    if (!showConnectionSettings) return;
+    const handleScannerData = (event: Event) => {
+      const value = (event as CustomEvent<{ code?: string }>).detail?.code || '';
+      if (value.trim()) applyScannedConnection(value);
+    };
+    window.addEventListener('qcmc-scanner-data', handleScannerData);
+    window.setTimeout(() => connectionInputRef.current?.focus(), 0);
+    return () => window.removeEventListener('qcmc-scanner-data', handleScannerData);
+  }, [applyScannedConnection, showConnectionSettings]);
 
   return (
     <>
@@ -175,6 +277,46 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, isLoading = false, error
           margin-bottom: 6px;
         }
         .lp-card-sub { font-size: 13px; color: hsl(var(--muted-foreground)); margin-bottom: 28px; }
+        .lp-connection-toggle {
+          width: 100%; min-height: 44px; margin: -12px 0 20px; padding: 8px 11px;
+          border: 1px solid hsl(var(--border)); border-radius: 10px;
+          background: hsl(var(--foreground) / 0.025); color: hsl(var(--foreground));
+          display: flex; align-items: center; gap: 10px; text-align: left;
+          font-family: 'Sora', sans-serif;
+        }
+        .lp-connection-toggle-copy { min-width: 0; flex: 1; }
+        .lp-connection-toggle-label { display: block; font-size: 11px; color: hsl(var(--muted-foreground)); }
+        .lp-connection-toggle-value { display: block; margin-top: 2px; font-size: 12px; font-weight: 700; }
+        .lp-connection-backdrop {
+          position: fixed; inset: 0; z-index: 100; padding: 18px;
+          display: flex; align-items: center; justify-content: center;
+          background: rgba(15, 23, 42, .52);
+        }
+        .lp-connection-dialog {
+          width: min(100%, 390px); max-height: calc(100vh - 36px); overflow-y: auto;
+          padding: 18px; border: 1px solid hsl(var(--border)); border-radius: 16px;
+          background: hsl(var(--card)); box-shadow: 0 24px 70px rgba(15,23,42,.3);
+        }
+        .lp-connection-title { font-size: 18px; font-weight: 800; }
+        .lp-connection-sub { margin-top: 5px; color: hsl(var(--muted-foreground)); font-size: 12px; line-height: 1.45; }
+        .lp-custom-url { margin-top: 15px; }
+        .lp-custom-url label { display: block; margin-bottom: 6px; color: hsl(var(--muted-foreground)); font-size: 10px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; }
+        .lp-custom-url input { width: 100%; min-height: 44px; padding: 9px 11px; border: 1px solid hsl(var(--border)); border-radius: 10px; background: hsl(var(--background)); color: hsl(var(--foreground)); font-family: 'JetBrains Mono', monospace; font-size: 12px; outline: none; }
+        .lp-custom-url input:focus { border-color: hsl(var(--primary)); }
+        .lp-connection-result { margin-top: 12px; padding: 9px 10px; border-radius: 9px; font-size: 11px; line-height: 1.4; }
+        .lp-connection-result.is-ok { background: hsl(142 71% 45% / .1); color: hsl(142 64% 28%); }
+        .lp-connection-result.is-error { background: hsl(var(--destructive) / .08); color: hsl(var(--destructive)); }
+        .lp-connection-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-top: 15px; }
+        .lp-connection-action { min-height: 42px; border: 1px solid hsl(var(--border)); border-radius: 10px; background: hsl(var(--background)); color: hsl(var(--foreground)); font-family: 'Sora', sans-serif; font-size: 12px; font-weight: 700; }
+        .lp-connection-action.is-primary { border-color: transparent; background: hsl(var(--primary)); color: white; }
+        .lp-connection-qr-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-top: 12px; }
+        .lp-connection-action { display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 8px; }
+        .lp-connection-qr-card { position: relative; margin-top: 14px; padding: 16px; border: 1px solid hsl(var(--border)); border-radius: 14px; background: white; text-align: center; }
+        .lp-connection-qr-close { position: absolute; top: 7px; right: 7px; width: 30px; height: 30px; border: 0; border-radius: 8px; background: #f1f3f6; color: #14213d; display: grid; place-items: center; }
+        .lp-connection-qr-image { display: block; width: min(100%, 220px); height: auto; margin: 0 auto; }
+        .lp-connection-qr-label { margin-top: 10px; color: #14213d; font-size: 11px; font-weight: 800; }
+        .lp-connection-qr-url { margin-top: 5px; color: #596579; font-family: 'JetBrains Mono', monospace; font-size: 10px; line-height: 1.4; overflow-wrap: anywhere; }
+        .lp-connection-qr-help { margin-top: 7px; color: #6b7280; font-size: 10px; line-height: 1.4; }
 
         /* Error */
         .lp-error {
@@ -258,6 +400,16 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, isLoading = false, error
         .lp-right { animation: lpSlideL 0.6s cubic-bezier(0.16,1,0.3,1) 0.1s both; }
         @keyframes lpSlideR { from { opacity: 0; transform: translateX(-20px); } to { opacity: 1; transform: translateX(0); } }
         @keyframes lpSlideL { from { opacity: 0; transform: translateX(20px);  } to { opacity: 1; transform: translateX(0); } }
+
+        /* Readability baseline for warehouse operators. */
+        .lp-card-sub, .lp-feature-desc, .lp-connection-toggle-label,
+        .lp-connection-sub, .lp-connection-result, .lp-connection-qr-label,
+        .lp-connection-qr-help, .lp-footer { font-size: 14px; line-height: 1.5; }
+        .lp-connection-toggle-value, .lp-connection-action,
+        .lp-custom-url input { font-size: 15px; }
+        .lp-custom-url label, .lp-connection-qr-url { font-size: 12px; }
+        .lp-submit, .lp-connection-action { min-height: 52px; font-size: 15px; }
+
       `}</style>
 
       <div className="lp-root">
@@ -270,8 +422,8 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, isLoading = false, error
           <div className="lp-divider" />
 
           <div className="lp-logo">
-            <img src={appLogo} alt="GeoTime QCMC logo" className="lp-logo-image" />
-            <span className="lp-logo-name">GeoTime QCMC</span>
+            <img src={appLogo} alt="QCMC Scanner logo" className="lp-logo-image" />
+            <span className="lp-logo-name">QCMC Scanner</span>
           </div>
 
           <h1 className="lp-headline">
@@ -285,10 +437,10 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, isLoading = false, error
 
           <div className="lp-features">
             {[
-              { icon: <Zap size={16} color="#fbbf24" />, bg: 'rgba(251,191,36,0.1)',  title: 'Instant Scan',   desc: 'Check in within seconds using QR codes' },
-              { icon: <Shield size={16} color="#34d399" />, bg: 'rgba(52,211,153,0.1)', title: 'Secure',         desc: 'Enterprise-grade security for your data' },
-              { icon: <Users size={16} color="#818cf8" />,  bg: 'rgba(129,140,248,0.1)',title: 'Team View',      desc: 'Real-time visibility of your team' },
-              { icon: <Clock size={16} color="#a78bfa" />,  bg: 'rgba(167,139,250,0.1)',title: 'Time Tracking',  desc: 'Accurate hours logging automatically' },
+              { icon: <Zap size={16} color="#fbbf24" />, bg: 'rgba(251,191,36,0.1)',  title: 'Instant Scan', desc: 'Check in within seconds using QR codes' },
+              { icon: <Shield size={16} color="#34d399" />, bg: 'rgba(52,211,153,0.1)', title: 'Secure', desc: 'Enterprise-grade security for your data' },
+              { icon: <Users size={16} color="#818cf8" />,  bg: 'rgba(129,140,248,0.1)',title: 'Team View', desc: 'Real-time visibility of your team' },
+              { icon: <Clock size={16} color="#a78bfa" />,  bg: 'rgba(167,139,250,0.1)',title: 'Time Tracking', desc: 'Accurate hours logging automatically' },
             ].map(({ icon, bg, title, desc }) => (
               <div className="lp-feature" key={title}>
                 <div className="lp-feature-icon" style={{ background: bg }}>{icon}</div>
@@ -305,13 +457,22 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, isLoading = false, error
 
             {/* Mobile logo */}
             <div className="lp-mobile-logo">
-              <img src={appLogo} alt="GeoTime QCMC logo" className="lp-logo-image" />
-              <span className="lp-logo-name">GeoTime QCMC</span>
+              <img src={appLogo} alt="QCMC Scanner logo" className="lp-logo-image" />
+              <span className="lp-logo-name">QCMC Scanner</span>
             </div>
 
             <div className="lp-card">
               <div className="lp-card-title">Welcome back</div>
               <div className="lp-card-sub">Sign in to your account to continue</div>
+
+              <button type="button" className="lp-connection-toggle" onClick={() => setShowConnectionSettings(true)} disabled={isLoading}>
+                <Settings2 size={17} />
+                  <span className="lp-connection-toggle-copy">
+                  <span className="lp-connection-toggle-label">ERP connection</span>
+                  <span className="lp-connection-toggle-value">Custom ERP URL</span>
+                </span>
+                <Wifi size={16} />
+              </button>
 
               {offlineMessage && <div className="lp-info">{offlineMessage}</div>}
               {error && <div className="lp-error">{error}</div>}
@@ -363,10 +524,66 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, isLoading = false, error
               </form>
             </div>
 
-            <p className="lp-footer">© 2026 GeoTime QCMC. All rights reserved.</p>
+            <p className="lp-footer">© 2026 QCMC Scanner. All rights reserved.</p>
           </div>
         </div>
       </div>
+
+      {showConnectionSettings && (
+        <div className="lp-connection-backdrop" onClick={closeConnectionSettings}>
+          <div className="lp-connection-dialog" role="dialog" aria-modal="true" aria-labelledby="erp-connection-title" onClick={event => event.stopPropagation()}>
+            <div id="erp-connection-title" className="lp-connection-title">ERP Connection</div>
+            <div className="lp-connection-sub">Type the ERP server this device should use.</div>
+            <div className="lp-custom-url">
+              <label htmlFor="custom-erp-url">ERP base URL</label>
+              <input
+                ref={connectionInputRef}
+                id="custom-erp-url"
+                type="url"
+                value={customErpUrl}
+                onChange={event => { setCustomErpUrlState(event.target.value); setConnectionQrUrl(''); setConnectionSettingsError(''); setConnectionTest({ loading: false }); }}
+                onKeyDown={event => {
+                  if (event.key === 'Enter' || event.key === 'Tab') {
+                    event.preventDefault();
+                    applyScannedConnection(event.currentTarget.value);
+                  }
+                }}
+                placeholder="http://qcmc.qcstyro.com"
+                autoCapitalize="off"
+                autoCorrect="off"
+                spellCheck={false}
+              />
+            </div>
+            <div className="lp-connection-qr-actions">
+              <button type="button" className="lp-connection-action" onClick={generateConnectionQr}>
+                <QrCode size={16} /> Generate QR
+              </button>
+              <button type="button" className="lp-connection-action" onClick={startConnectionQrScan}>
+                <ScanLine size={16} /> Scan URL QR
+              </button>
+            </div>
+            {connectionQrUrl && (
+              <div className="lp-connection-qr-card">
+                <button type="button" className="lp-connection-qr-close" aria-label="Close connection QR" onClick={() => setConnectionQrUrl('')}><X size={16} /></button>
+                <QRCodeSVG className="lp-connection-qr-image" value={connectionQrUrl} size={220} level="M" marginSize={2} />
+                <div className="lp-connection-qr-label">QCMC Scanner ERP Connection</div>
+                <div className="lp-connection-qr-url">{connectionQrUrl}</div>
+                <div className="lp-connection-qr-help">On another scanner, open ERP Connection and scan this QR.</div>
+              </div>
+            )}
+            {connectionSettingsError && <div className="lp-connection-result is-error">{connectionSettingsError}</div>}
+            {connectionTest.message && (
+              <div className={`lp-connection-result ${connectionTest.ok ? 'is-ok' : 'is-error'}`}>{connectionTest.message}</div>
+            )}
+            <div className="lp-connection-actions">
+              <button type="button" className="lp-connection-action" onClick={() => void testConnection()} disabled={connectionTest.loading}>
+                {connectionTest.loading ? 'Testing…' : 'Test connection'}
+              </button>
+              <button type="button" className="lp-connection-action is-primary" onClick={closeConnectionSettings}>Done</button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 };

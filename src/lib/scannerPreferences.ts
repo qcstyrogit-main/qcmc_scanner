@@ -34,9 +34,9 @@ export const saveScannerTextSize = (size: ScannerTextSize) => {
 
 export const loadScannerQuantityMode = (): ScannerQuantityMode => {
   try {
-    return localStorage.getItem(QUANTITY_MODE_KEY) === "manual" ? "manual" : "automatic";
+    return localStorage.getItem(QUANTITY_MODE_KEY) === "automatic" ? "automatic" : "manual";
   } catch {
-    return "automatic";
+    return "manual";
   }
 };
 

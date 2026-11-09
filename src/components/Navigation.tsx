@@ -33,10 +33,8 @@ const Navigation: React.FC<NavigationProps> = ({
   return (
     <>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&display=swap');
-
         .nav {
-          font-family: 'Sora', sans-serif;
+          font-family: Inter, ui-sans-serif, system-ui, sans-serif;
           background: hsl(var(--background) / 0.85);
           backdrop-filter: blur(16px);
           -webkit-backdrop-filter: blur(16px);
@@ -75,10 +73,10 @@ const Navigation: React.FC<NavigationProps> = ({
         .nav-item {
           display: flex; align-items: center; gap: 7px;
           padding: 7px 13px; border-radius: 9px;
-          font-size: 13px; font-weight: 500;
+          font-size: 15px; font-weight: 500;
           color: hsl(var(--muted-foreground)); background: none; border: none;
           cursor: pointer; transition: color 0.15s, background 0.15s;
-          font-family: 'Sora', sans-serif; white-space: nowrap;
+          font-family: inherit; white-space: nowrap;
         }
         .nav-item:hover { color: hsl(var(--foreground)); background: hsl(var(--foreground) / 0.05); }
         .nav-item-active {
@@ -94,8 +92,8 @@ const Navigation: React.FC<NavigationProps> = ({
         @media (min-width: 640px) { .nav-user { display: flex; } }
 
         .nav-user-text { text-align: right; }
-        .nav-user-name { font-size: 13px; font-weight: 600; color: hsl(var(--foreground)); line-height: 1.3; }
-        .nav-user-dept { font-size: 11px; color: hsl(var(--muted-foreground)); }
+        .nav-user-name { font-size: 15px; font-weight: 600; color: hsl(var(--foreground)); line-height: 1.3; }
+        .nav-user-dept { font-size: 13px; color: hsl(var(--muted-foreground)); }
 
         .nav-avatar {
           width: 32px; height: 32px; border-radius: 9px; flex-shrink: 0;
@@ -105,13 +103,14 @@ const Navigation: React.FC<NavigationProps> = ({
           box-shadow: 0 0 0 2px hsl(var(--primary) / 0.2);
         }
 
+
       `}</style>
 
       <nav className="nav">
         <div className="nav-inner">
           <div className="nav-logo">
-            <img src={appLogo} alt="GeoTime QCMC logo" className="nav-logo-image" />
-            <span className="nav-logo-name">GeoTime QCMC</span>
+            <img src={appLogo} alt="QCMC Scanner logo" className="nav-logo-image" />
+            <span className="nav-logo-name">QCMC Scanner</span>
           </div>
 
           <div className="nav-items">

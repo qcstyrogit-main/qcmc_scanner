@@ -1,0 +1,79 @@
+/* Shared Windows Calculator-style readout for all scanner keypads. */
+.qcmc-calculator-readout {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-end;
+  width: 100%;
+  min-width: 0;
+  min-height: 76px;
+  padding: 8px 14px;
+  background: #f7f1f9;
+  border: 1px solid #d8e1ed;
+  border-radius: 12px;
+  color: #111827;
+  text-align: right;
+  direction: ltr;
+}
+.qcmc-calculator-history {
+  min-height: 17px;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 500;
+  color: #697388;
+  text-align: right;
+}
+.qcmc-calculator-current {
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+  font-size: clamp(28px, 5.6dvh, 43px);
+  font-weight: 800;
+  line-height: 1.18;
+  font-variant-numeric: tabular-nums;
+}
+.qcmc-calculator-current small {
+  font-size: 0.4em;
+  font-weight: 600;
+  color: #66758c;
+}
+.qcmc-calculator-entry {
+  position: relative;
+  flex: 0 0 auto;
+  min-width: 0;
+  width: 100%;
+  border-radius: 12px;
+}
+.qcmc-calculator-entry .qcmc-calculator-readout {
+  min-height: 76px;
+}
+.qcmc-calculator-entry .scan-qty-input,
+.qcmc-calculator-entry .scan-edit-qty-input {
+  position: absolute !important;
+  inset: 0 !important;
+  display: block !important;
+  width: 100% !important;
+  height: 100% !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  opacity: 0 !important;
+  border: 0 !important;
+  pointer-events: none !important;
+}
+.qcmc-calculator-entry:focus-within .qcmc-calculator-readout {
+  border-color: #0b72ef;
+  box-shadow: 0 0 0 2px rgba(11, 114, 239, 0.12);
+}
+/* Compact the readout to retain keypad space on small SmartPDA displays. */
+@media (max-width:700px) {
+  .qcmc-calculator-readout { min-height: 68px; padding: 6px 12px; }
+  .qcmc-calculator-entry .qcmc-calculator-readout { min-height: 68px; }
+  .qcmc-calculator-current { font-size: clamp(25px, 4.3dvh, 38px); }
+}

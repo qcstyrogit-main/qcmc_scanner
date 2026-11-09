@@ -13,10 +13,14 @@ export type Employee = {
 export type ViewType =
   | "dashboard"
   | "scan"
+  | "job_card_time"
+  | "location_transfer"
   | "history"
   | "profile"
   | "settings"
   | "admin"
   | "delivery"
   | "delivery_history"
-  | "delivery_customers";
+  | "delivery_customers"
+  | "issue_stock_coming_soon"
+  | "delivery_coming_soon";

@@ -5,11 +5,17 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.app.KeyguardManager;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.PowerManager;
+import android.os.SystemClock;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowInsetsCompat;
 import com.getcapacitor.BridgeActivity;
 import java.lang.reflect.Method;
 import java.util.Arrays;
@@ -19,16 +25,38 @@ import org.json.JSONObject;
 public class MainActivity extends BridgeActivity {
   private BroadcastReceiver scannerReceiver;
   private Object sdkScanManager;
+  private Integer previousSdkOutputMode;
+  private String lastScannerCode = "";
+  private long lastScannerCodeAtMs = 0L;
+  private float navigationInsetCssPixels = 0f;
+  private static final long DUPLICATE_SCAN_WINDOW_MS = 275L;
 
   @Override
   public void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
 
     WebView webView = getBridge().getWebView();
+    ViewCompat.setOnApplyWindowInsetsListener(webView, (view, windowInsets) -> {
+      Insets navigationBars = windowInsets.getInsets(WindowInsetsCompat.Type.navigationBars());
+      float density = getResources().getDisplayMetrics().density;
+      float bottomInsetCssPixels = navigationBars.bottom / density;
+      navigationInsetCssPixels = bottomInsetCssPixels;
+      webView.evaluateJavascript(
+        "document.documentElement.style.setProperty('--qcmc-navigation-inset','" +
+          bottomInsetCssPixels + "px')",
+        null
+      );
+      return windowInsets;
+    });
+    ViewCompat.requestApplyInsets(webView);
+
     WebSettings settings = webView.getSettings();
     settings.setSupportZoom(false);
     settings.setBuiltInZoomControls(false);
     settings.setDisplayZoomControls(false);
+    webView.setHapticFeedbackEnabled(false);
+    webView.setOnLongClickListener(view -> true);
+    webView.setLongClickable(false);
     webView.addJavascriptInterface(new ScannerBridge(), "QcmcScanner");
   }
 
@@ -42,6 +70,11 @@ public class MainActivity extends BridgeActivity {
     public void stopScan() {
       runOnUiThread(() -> stopScanner());
     }
+
+    @JavascriptInterface
+    public float getNavigationInset() {
+      return navigationInsetCssPixels;
+    }
   }
 
   @Override
@@ -52,10 +85,33 @@ public class MainActivity extends BridgeActivity {
   }
 
   @Override
+  public void onResume() {
+    super.onResume();
+    registerScannerReceiver();
+    openSdkScanner();
+  }
+
+  @Override
   public void onStop() {
     stopScanner();
+    if (!isDeviceLockedOrScreenOff()) {
+      restoreSdkOutputMode();
+    }
     unregisterScannerReceiver();
     super.onStop();
+  }
+
+  private boolean isDeviceLockedOrScreenOff() {
+    KeyguardManager keyguardManager =
+      (KeyguardManager) getSystemService(Context.KEYGUARD_SERVICE);
+    PowerManager powerManager =
+      (PowerManager) getSystemService(Context.POWER_SERVICE);
+
+    boolean isLocked =
+      keyguardManager != null && keyguardManager.isKeyguardLocked();
+    boolean isScreenOff =
+      powerManager != null && !powerManager.isInteractive();
+    return isLocked || isScreenOff;
   }
 
   private void registerScannerReceiver() {
@@ -70,8 +126,19 @@ public class MainActivity extends BridgeActivity {
         if (code == null || code.trim().isEmpty()) {
           return;
         }
-        stopScanner();
-        sendScannerCodeToWeb(code.trim());
+
+        String trimmedCode = code.trim();
+        long now = SystemClock.elapsedRealtime();
+        if (
+          trimmedCode.equals(lastScannerCode) &&
+          now - lastScannerCodeAtMs < DUPLICATE_SCAN_WINDOW_MS
+        ) {
+          return;
+        }
+
+        lastScannerCode = trimmedCode;
+        lastScannerCodeAtMs = now;
+        sendScannerCodeToWeb(trimmedCode);
       }
     };
 
@@ -221,7 +288,6 @@ public class MainActivity extends BridgeActivity {
 
   private void stopScanner() {
     sendDawnScannerService("com.kte.service.scan.stop");
-    sendDawnScannerService("com.kte.service.scan.close");
 
     Intent dataWedgeIntent = new Intent("com.symbol.datawedge.api.ACTION");
     dataWedgeIntent.putExtra("com.symbol.datawedge.api.SOFT_SCAN_TRIGGER", "STOP_SCANNING");
@@ -254,9 +320,12 @@ public class MainActivity extends BridgeActivity {
       return false;
     }
 
-    return invokeSdkMethod(manager, "openScanner") ||
+    boolean opened = invokeSdkMethod(manager, "openScanner") ||
       invokeSdkMethod(manager, "open") ||
       invokeSdkMethod(manager, "scannerOpen");
+
+    configureSdkIntentOutput(manager);
+    return opened;
   }
 
   private boolean startSdkScanner() {
@@ -302,6 +371,51 @@ public class MainActivity extends BridgeActivity {
     try {
       Method method = target.getClass().getMethod(methodName);
       Object result = method.invoke(target);
+      return !(result instanceof Boolean) || (Boolean) result;
+    } catch (Exception ignored) {
+      return false;
+    }
+  }
+
+  private void configureSdkIntentOutput(Object manager) {
+    try {
+      Method getOutputMode = manager.getClass().getMethod("getOutputMode");
+      Object currentMode = getOutputMode.invoke(manager);
+      if (currentMode instanceof Integer) {
+        int mode = (Integer) currentMode;
+        if (mode != 0) {
+          previousSdkOutputMode = mode;
+        }
+      }
+    } catch (Exception ignored) {
+      // Output-mode inspection is not supported by this scanner SDK.
+    }
+
+    // Urovo ScanManager: 0 = whole-code Intent, 1 = keyboard/textbox.
+    invokeSdkIntMethod(manager, "switchOutputMode", 0);
+  }
+
+  private void restoreSdkOutputMode() {
+    if (sdkScanManager == null || previousSdkOutputMode == null) {
+      return;
+    }
+
+    invokeSdkIntMethod(
+      sdkScanManager,
+      "switchOutputMode",
+      previousSdkOutputMode
+    );
+    previousSdkOutputMode = null;
+  }
+
+  private boolean invokeSdkIntMethod(
+    Object target,
+    String methodName,
+    int value
+  ) {
+    try {
+      Method method = target.getClass().getMethod(methodName, int.class);
+      Object result = method.invoke(target, value);
       return !(result instanceof Boolean) || (Boolean) result;
     } catch (Exception ignored) {
       return false;
